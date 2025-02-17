@@ -1,50 +1,56 @@
+import type { EndpointParameters } from "./server/endpoints/endpoints";
 import type { BackendModel } from "./server/models";
-import type { Message } from "./types/Message";
-import { format } from "date-fns";
-import type { WebSearch } from "./types/WebSearch";
-/**
- * Convert [{user: "assistant", content: "hi"}, {user: "user", content: "hello"}] to:
- *
- * <|assistant|>hi<|endoftext|><|prompter|>hello<|endoftext|><|assistant|>
- */
+import type { Tool, ToolResult } from "./types/Tool";
 
-interface buildPromptOptions {
-	messages: Pick<Message, "from" | "content">[];
+type buildPromptOptions = Pick<EndpointParameters, "messages" | "preprompt" | "continueMessage"> & {
 	model: BackendModel;
-	locals?: App.Locals;
-	webSearch?: WebSearch;
-	preprompt?: string;
-}
+	tools?: Tool[];
+	toolResults?: ToolResult[];
+};
 
 export async function buildPrompt({
 	messages,
 	model,
-	webSearch,
 	preprompt,
+	continueMessage,
+	tools,
+	toolResults,
 }: buildPromptOptions): Promise<string> {
-	if (webSearch && webSearch.context) {
-		const messagesWithoutLastUsrMsg = messages.slice(0, -1);
-		const lastUserMsg = messages.slice(-1)[0];
-		const currentDate = format(new Date(), "MMMM d, yyyy");
-		messages = [
-			...messagesWithoutLastUsrMsg,
-			{
-				from: "user",
-				content: `Please answer my question "${lastUserMsg.content}" using the supplied context below (paragraphs from various websites). For the context, today is ${currentDate}: 
-				=====================
-				${webSearch.context}
-				=====================
-				So my question is "${lastUserMsg.content}"`,
-			},
-		];
+	const filteredMessages = messages;
+
+	if (filteredMessages[0].from === "system" && preprompt) {
+		filteredMessages[0].content = preprompt;
 	}
 
-	return (
-		model
-			.chatPromptRender({ messages, preprompt })
-			// Not super precise, but it's truncated in the model's backend anyway
-			.split(" ")
-			.slice(-(model.parameters?.truncate ?? 0))
-			.join(" ")
-	);
+	let prompt = model
+		.chatPromptRender({
+			messages: filteredMessages,
+			preprompt,
+			tools,
+			toolResults,
+			continueMessage,
+		})
+		// Not super precise, but it's truncated in the model's backend anyway
+		.split(" ")
+		.slice(-(model.parameters?.truncate ?? 0))
+		.join(" ");
+
+	if (continueMessage && model.parameters?.stop) {
+		let trimmedPrompt = prompt.trimEnd();
+		let hasRemovedStop = true;
+		while (hasRemovedStop) {
+			hasRemovedStop = false;
+			for (const stopToken of model.parameters.stop) {
+				if (trimmedPrompt.endsWith(stopToken)) {
+					trimmedPrompt = trimmedPrompt.slice(0, -stopToken.length);
+					hasRemovedStop = true;
+					break;
+				}
+			}
+			trimmedPrompt = trimmedPrompt.trimEnd();
+		}
+		prompt = trimmedPrompt;
+	}
+
+	return prompt;
 }

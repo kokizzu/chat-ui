@@ -4,16 +4,42 @@
 	import IconCopy from "./icons/IconCopy.svelte";
 	import Tooltip from "./Tooltip.svelte";
 
-	export let classNames = "";
-	export let value: string;
+	interface Props {
+		classNames?: string;
+		value: string;
+		children?: import("svelte").Snippet;
+		onClick?: () => void;
+	}
 
-	let isSuccess = false;
+	let { classNames = "", value, children, onClick }: Props = $props();
+
+	let isSuccess = $state(false);
 	let timeout: ReturnType<typeof setTimeout>;
 
+	const unsecuredCopy = (text: string) => {
+		//Old or insecure browsers
+
+		const textArea = document.createElement("textarea");
+		textArea.value = text;
+		document.body.appendChild(textArea);
+		textArea.focus();
+		textArea.select();
+		document.execCommand("copy");
+		document.body.removeChild(textArea);
+
+		return Promise.resolve();
+	};
+
+	const copy = async (text: string) => {
+		if (window.isSecureContext && navigator.clipboard) {
+			return navigator.clipboard.writeText(text);
+		}
+		return unsecuredCopy(text);
+	};
+
 	const handleClick = async () => {
-		// writeText() can be unavailable or fail in some cases (iframe, etc) so we try/catch
 		try {
-			await navigator.clipboard.writeText(value);
+			await copy(value);
 
 			isSuccess = true;
 			if (timeout) {
@@ -35,17 +61,19 @@
 </script>
 
 <button
-	class="btn rounded-lg border border-gray-200 px-2 py-2 text-sm shadow-sm transition-all hover:border-gray-300 active:shadow-inner dark:border-gray-600 dark:hover:border-gray-400 {classNames}
-		{!isSuccess && 'text-gray-200 dark:text-gray-200'}
-		{isSuccess && 'text-green-500'}
-	"
+	class={classNames}
 	title={"Copy to clipboard"}
 	type="button"
-	on:click
-	on:click={handleClick}
+	onclick={() => {
+		onClick?.();
+		handleClick();
+	}}
 >
-	<span class="relative">
-		<IconCopy />
+	<div class="relative">
+		{#if children}{@render children()}{:else}
+			<IconCopy classNames="h-[1.14em] w-[1.14em]" />
+		{/if}
+
 		<Tooltip classNames={isSuccess ? "opacity-100" : "opacity-0"} />
-	</span>
+	</div>
 </button>

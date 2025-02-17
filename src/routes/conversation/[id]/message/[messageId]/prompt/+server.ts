@@ -2,6 +2,8 @@ import { buildPrompt } from "$lib/buildPrompt";
 import { authCondition } from "$lib/server/auth";
 import { collections } from "$lib/server/database";
 import { models } from "$lib/server/models";
+import { buildSubtree } from "$lib/utils/tree/buildSubtree";
+import { isMessageId } from "$lib/utils/tree/isMessageId";
 import { error } from "@sveltejs/kit";
 import { ObjectId } from "mongodb";
 
@@ -10,38 +12,40 @@ export async function GET({ params, locals }) {
 		params.id.length === 7
 			? await collections.sharedConversations.findOne({
 					_id: params.id,
-			  })
+				})
 			: await collections.conversations.findOne({
 					_id: new ObjectId(params.id),
 					...authCondition(locals),
-			  });
+				});
 
 	if (conv === null) {
-		throw error(404, "Conversation not found");
+		error(404, "Conversation not found");
 	}
 
 	const messageId = params.messageId;
 
 	const messageIndex = conv.messages.findIndex((msg) => msg.id === messageId);
 
-	if (messageIndex === -1) {
-		throw error(404, "Message not found");
+	if (!isMessageId(messageId) || messageIndex === -1) {
+		error(404, "Message not found");
 	}
 
 	const model = models.find((m) => m.id === conv.model);
 
 	if (!model) {
-		throw error(404, "Conversation model not found");
+		error(404, "Conversation model not found");
 	}
 
-	const messagesUpTo = conv.messages.slice(0, messageIndex + 1);
+	const messagesUpTo = buildSubtree(conv, messageId);
 
 	const prompt = await buildPrompt({
 		preprompt: conv.preprompt,
-		webSearch: messagesUpTo[messagesUpTo.length - 1].webSearch,
 		messages: messagesUpTo,
-		model: model,
+		model,
 	});
+
+	const userMessage = conv.messages[messageIndex];
+	const assistantMessage = conv.messages[messageIndex + 1];
 
 	return new Response(
 		JSON.stringify(
@@ -53,6 +57,8 @@ export async function GET({ params, locals }) {
 					...model.parameters,
 					return_full_text: false,
 				},
+				userMessage,
+				...(assistantMessage ? { assistantMessage } : {}),
 			},
 			null,
 			2
