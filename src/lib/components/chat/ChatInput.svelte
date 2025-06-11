@@ -23,6 +23,7 @@
 	import { captureScreen } from "$lib/utils/screenshot";
 	import IconScreenshot from "../icons/IconScreenshot.svelte";
 	import { loginModalOpen } from "$lib/stores/loginModal";
+
 	import { isVirtualKeyboard } from "$lib/utils/isVirtualKeyboard";
 	interface Props {
 		files?: File[];
